@@ -1,24 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
+import { goToLogin, scrollToSection, updateNavHeightVar } from '../lib/scroll';
 
 const Navigation = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
     };
+
+    const nav = navRef.current;
+    const resizeObserver = nav
+      ? new ResizeObserver(() => updateNavHeightVar())
+      : null;
+
+    updateNavHeightVar();
+    if (resizeObserver && nav) {
+      resizeObserver.observe(nav);
+    }
+
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener('resize', updateNavHeightVar, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', updateNavHeightVar);
+      resizeObserver?.disconnect();
+    };
   }, []);
 
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-      setIsMobileMenuOpen(false);
-    }
+  const handleNavigation = (id: string) => {
+    scrollToSection(id);
+    setIsMobileMenuOpen(false);
   };
 
   const navLinks = [
@@ -31,6 +47,8 @@ const Navigation = () => {
   return (
     <>
       <nav
+        ref={navRef}
+        data-site-nav="true"
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           isScrolled
             ? 'bg-eduflow-dark/80 backdrop-blur-xl border-b border-white/5'
@@ -54,7 +72,7 @@ const Navigation = () => {
               {navLinks.map((link) => (
                 <button
                   key={link.id}
-                  onClick={() => scrollToSection(link.id)}
+                  onClick={() => handleNavigation(link.id)}
                   className="text-eduflow-text-secondary hover:text-eduflow-text-primary transition-colors text-sm font-medium"
                 >
                   {link.label}
@@ -65,7 +83,7 @@ const Navigation = () => {
             {/* CTA Button */}
             <div className="hidden md:block">
               <button
-                onClick={() => scrollToSection('cta')}
+                onClick={goToLogin}
                 className="btn-primary text-sm"
               >
                 Request a demo
@@ -97,14 +115,14 @@ const Navigation = () => {
           {navLinks.map((link) => (
             <button
               key={link.id}
-              onClick={() => scrollToSection(link.id)}
+              onClick={() => handleNavigation(link.id)}
               className="text-eduflow-text-primary text-2xl font-medium"
             >
               {link.label}
             </button>
           ))}
           <button
-            onClick={() => scrollToSection('cta')}
+            onClick={goToLogin}
             className="btn-primary mt-4"
           >
             Request a demo

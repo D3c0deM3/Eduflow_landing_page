@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    --nav-height: 5rem;
     --background: 220 14% 4%;
     --foreground: 220 9% 97%;
     --card: 220 14% 6%;
@@ -44,11 +45,16 @@
   
   html {
     scroll-behavior: smooth;
+    scroll-padding-top: calc(var(--nav-height) + 0.75rem);
   }
   
   body {
     @apply bg-eduflow-dark text-eduflow-text-primary font-sans antialiased;
     overflow-x: hidden;
+  }
+
+  section[id] {
+    scroll-margin-top: calc(var(--nav-height) + 0.75rem);
   }
 }
 
@@ -197,6 +203,12 @@
 }
 
 @layer utilities {
+  .fullscreen-panel {
+    min-height: calc(100svh - var(--nav-height));
+    padding-top: clamp(1rem, 2vh, 2rem);
+    padding-bottom: clamp(1rem, 2vh, 2rem);
+  }
+
   .text-gradient {
     @apply bg-clip-text text-transparent;
     background-image: linear-gradient(135deg, #00F0FF 0%, #9B00FF 100%);

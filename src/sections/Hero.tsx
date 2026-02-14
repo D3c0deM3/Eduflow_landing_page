@@ -9,6 +9,7 @@ import {
   ArrowRight,
   ChevronRight,
 } from 'lucide-react';
+import { goToLogin, scrollToSection } from '../lib/scroll';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -84,9 +85,9 @@ const Hero = () => {
         scrollTrigger: {
           trigger: section,
           start: 'top top',
-          end: '+=130%',
-          pin: true,
-          scrub: 0.6,
+          end: 'bottom top',
+          scrub: 0.45,
+          invalidateOnRefresh: true,
           onLeaveBack: () => {
             // Reset all elements when scrolling back to top
             gsap.set([headline, device, ...cardElements], {
@@ -128,17 +129,10 @@ const Hero = () => {
     return () => ctx.revert();
   }, []);
 
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   return (
     <section
       ref={sectionRef}
-      className="section-dark min-h-screen w-full relative overflow-hidden flex items-center"
+      className="section-dark fullscreen-panel w-full relative overflow-x-hidden overflow-y-visible flex items-center"
     >
       {/* Background Glow Orbs */}
       <div className="glow-orb glow-orb-cyan w-[26vw] h-[26vw] left-[18%] top-[22%] animate-pulse-glow" />
@@ -148,8 +142,8 @@ const Hero = () => {
       <div className="absolute inset-0 bg-gradient-radial pointer-events-none" />
 
       {/* Content Container */}
-      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 pt-20 relative z-10">
-        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center min-h-[calc(100vh-5rem)]">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 pt-[calc(var(--nav-height,5rem)+0.5rem)] pb-6 md:pb-10 relative z-10">
+        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
           {/* Left: Headline */}
           <div ref={headlineRef} className="relative z-20">
             <span className="eyebrow mb-4 block">EDUFLOW PLATFORM</span>
@@ -167,7 +161,7 @@ const Hero = () => {
             </p>
             <div className="cta-row flex flex-wrap gap-4">
               <button
-                onClick={() => scrollToSection('cta')}
+                onClick={goToLogin}
                 className="btn-primary"
               >
                 Request a demo
@@ -184,13 +178,13 @@ const Hero = () => {
           </div>
 
           {/* Right: Floating UI Cards */}
-          <div ref={cardsRef} className="relative h-[500px] lg:h-[600px]">
+          <div ref={cardsRef} className="relative h-[500px] lg:h-[600px] lg:-mt-6">
             {/* Center Device Mockup */}
             <div
               ref={deviceRef}
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] max-w-[400px] z-30"
+              className="absolute left-1/2 top-[27%] lg:top-[28%] -translate-x-1/2 -translate-y-1/2 w-[80%] max-w-[400px] z-30"
             >
-              <div className="glass-card p-4 glow-cyan">
+              <div className="glass-card p-4 glow-cyan animate-float">
                 {/* Device Header */}
                 <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/10">
                   <div className="flex items-center gap-2">
@@ -259,7 +253,7 @@ const Hero = () => {
             </div>
 
             {/* Floating Card A - CRM (Top Left) */}
-            <div className="floating-card absolute left-0 top-[8%] w-[45%] max-w-[180px] z-20 animate-float">
+            <div className="floating-card absolute left-[2%] top-[6%] w-[44%] max-w-[190px] z-40 animate-float">
               <div className="glass-card p-4 glow-cyan-sm">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-eduflow-cyan/20 flex items-center justify-center">
@@ -286,7 +280,7 @@ const Hero = () => {
 
             {/* Floating Card B - Exam Progress (Top Right) */}
             <div
-              className="floating-card absolute right-0 top-[12%] w-[50%] max-w-[200px] z-20 animate-float"
+              className="floating-card absolute right-[2%] top-[8%] w-[46%] max-w-[200px] z-40 animate-float"
               style={{ animationDelay: '1s' }}
             >
               <div className="glass-card p-4 glow-purple-sm">
@@ -331,7 +325,7 @@ const Hero = () => {
 
             {/* Floating Card C - Speaking Waveform (Bottom Left) */}
             <div
-              className="floating-card absolute left-[5%] bottom-[15%] w-[55%] max-w-[220px] z-20 animate-float"
+              className="floating-card absolute left-0 bottom-[10%] w-[48%] max-w-[220px] z-40 animate-float"
               style={{ animationDelay: '2s' }}
             >
               <div className="glass-card p-4 glow-cyan-sm">
@@ -366,7 +360,7 @@ const Hero = () => {
 
             {/* Floating Card D - Stats (Bottom Right) */}
             <div
-              className="floating-card absolute right-[3%] bottom-[20%] w-[45%] max-w-[180px] z-20 animate-float"
+              className="floating-card absolute right-0 bottom-[14%] w-[40%] max-w-[180px] z-40 animate-float"
               style={{ animationDelay: '0.5s' }}
             >
               <div className="glass-card p-4 glow-purple-sm">

@@ -5,6 +5,8 @@ import { Check, Sparkles } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
+const CONTACT_TELEGRAM = 'https://t.me/cdimock_test';
+
 const Pricing = () => {
   const sectionRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -177,15 +179,18 @@ const Pricing = () => {
               </div>
 
               {/* CTA Button */}
-              <button
-                className={`w-full py-3 rounded-xl font-medium transition-all duration-200 mb-6 ${
+              <a
+                href={CONTACT_TELEGRAM}
+                target="_blank"
+                rel="noreferrer"
+                className={`w-full py-3 rounded-xl font-medium transition-all duration-200 mb-6 inline-flex items-center justify-center ${
                   plan.highlighted
                     ? 'btn-primary'
                     : 'bg-eduflow-dark text-white hover:bg-eduflow-dark/90'
                 }`}
               >
                 {plan.cta}
-              </button>
+              </a>
 
               {/* Features */}
               <ul className="space-y-3">

@@ -5,6 +5,10 @@ import { Twitter, Linkedin, Github, Youtube } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
+const CONTACT_PHONE_DISPLAY = '+998 91-581-77-11';
+const CONTACT_PHONE_LINK = 'tel:+998915817711';
+const CONTACT_TELEGRAM = 'https://t.me/cdimock_test';
+
 const Footer = () => {
   const footerRef = useRef<HTMLElement>(null);
 
@@ -66,6 +70,23 @@ const Footer = () => {
                 Built for educators who demand more. The complete ecosystem for
                 modern education.
               </p>
+              <div className="mt-4 space-y-1 text-sm">
+                <p className="text-eduflow-text-primary">Contacts</p>
+                <a
+                  href={CONTACT_PHONE_LINK}
+                  className="block text-eduflow-text-secondary hover:text-eduflow-cyan transition-colors"
+                >
+                  {CONTACT_PHONE_DISPLAY}
+                </a>
+                <a
+                  href={CONTACT_TELEGRAM}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-eduflow-text-secondary hover:text-eduflow-cyan transition-colors"
+                >
+                  Telegram: @cdimock_test
+                </a>
+              </div>
             </div>
 
             {/* Links */}

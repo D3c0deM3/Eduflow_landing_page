@@ -2,8 +2,13 @@ import { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ArrowRight, MessageCircle } from 'lucide-react';
+import { goToLogin } from '../lib/scroll';
 
 gsap.registerPlugin(ScrollTrigger);
+
+const CONTACT_PHONE_DISPLAY = '+998 91-581-77-11';
+const CONTACT_PHONE_LINK = 'tel:+998915817711';
+const CONTACT_TELEGRAM = 'https://t.me/cdimock_test';
 
 const CTA = () => {
   const sectionRef = useRef<HTMLElement>(null);
@@ -18,82 +23,63 @@ const CTA = () => {
     if (!section || !content || !orbs) return;
 
     const ctx = gsap.context(() => {
-      const scrollTl = gsap.timeline({
-        scrollTrigger: {
-          trigger: section,
-          start: 'top top',
-          end: '+=120%',
-          pin: true,
-          scrub: 0.6,
-        },
-      });
-
-      // ENTRANCE (0% - 30%)
       const title = content.querySelector('.cta-title');
       const body = content.querySelector('.cta-body');
       const buttons = content.querySelector('.cta-buttons');
 
-      scrollTl.fromTo(
-        title,
-        { y: '18vh', opacity: 0 },
-        { y: 0, opacity: 1, ease: 'none' },
-        0
+      gsap.fromTo(
+        [title, body, buttons],
+        { y: 50, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          duration: 0.9,
+          stagger: 0.12,
+          ease: 'power3.out',
+          scrollTrigger: {
+            trigger: section,
+            start: 'top 72%',
+            toggleActions: 'play none none reverse',
+          },
+        }
       );
 
-      scrollTl.fromTo(
-        body,
-        { y: '10vh', opacity: 0 },
-        { y: 0, opacity: 1, ease: 'none' },
-        0.05
-      );
-
-      scrollTl.fromTo(
-        buttons,
-        { y: '8vh', scale: 0.96, opacity: 0 },
-        { y: 0, scale: 1, opacity: 1, ease: 'none' },
-        0.1
-      );
-
-      scrollTl.fromTo(
+      gsap.fromTo(
         orbs,
-        { opacity: 0, scale: 0.9 },
-        { opacity: 1, scale: 1, ease: 'none' },
-        0
+        { opacity: 0.25, scale: 0.95 },
+        {
+          opacity: 1,
+          scale: 1,
+          duration: 1,
+          ease: 'power2.out',
+          scrollTrigger: {
+            trigger: section,
+            start: 'top 80%',
+            toggleActions: 'play none none reverse',
+          },
+        }
       );
 
-      // SETTLE (30% - 70%) - Hold
-
-      // EXIT (70% - 100%)
-      scrollTl.fromTo(
-        content,
-        { y: 0, opacity: 1 },
-        { y: '-10vh', opacity: 0, ease: 'power2.in' },
-        0.7
-      );
-
-      scrollTl.fromTo(
-        orbs,
-        { opacity: 1, scale: 1 },
-        { opacity: 0.1, scale: 1.1, ease: 'power2.in' },
-        0.7
-      );
+      gsap.to(content, {
+        yPercent: -6,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: section,
+          start: 'top bottom',
+          end: 'bottom top',
+          scrub: 0.45,
+        },
+      });
     }, section);
 
     return () => ctx.revert();
   }, []);
 
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   return (
     <section
       ref={sectionRef}
       id="cta"
-      className="section-dark min-h-screen w-full relative overflow-hidden flex items-center justify-center"
+      className="section-dark fullscreen-panel w-full relative overflow-x-hidden flex items-center justify-center"
     >
       {/* Background Glow Orbs */}
       <div ref={orbsRef} className="absolute inset-0 pointer-events-none">
@@ -115,17 +101,37 @@ const CTA = () => {
         </p>
         <div className="cta-buttons flex flex-wrap justify-center gap-4">
           <button
-            onClick={() => scrollToSection('pricing')}
+            onClick={goToLogin}
             className="btn-primary text-lg px-8 py-4"
           >
             Request a demo
             <ArrowRight className="ml-2 w-5 h-5" />
           </button>
-          <button className="btn-secondary text-lg px-8 py-4">
+          <a
+            href={CONTACT_TELEGRAM}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary text-lg px-8 py-4"
+          >
             <MessageCircle className="mr-2 w-5 h-5" />
             Contact sales
-          </button>
+          </a>
         </div>
+        <p className="mt-6 text-sm md:text-base text-eduflow-text-secondary">
+          Contacts:{' '}
+          <a href={CONTACT_PHONE_LINK} className="text-eduflow-cyan hover:underline">
+            {CONTACT_PHONE_DISPLAY}
+          </a>{' '}
+          |{' '}
+          <a
+            href={CONTACT_TELEGRAM}
+            target="_blank"
+            rel="noreferrer"
+            className="text-eduflow-cyan hover:underline"
+          >
+            Telegram
+          </a>
+        </p>
       </div>
     </section>
   );

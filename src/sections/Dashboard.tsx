@@ -29,61 +29,65 @@ const Dashboard = () => {
     if (!section || !title || !dashboard || !orbs) return;
 
     const ctx = gsap.context(() => {
-      const scrollTl = gsap.timeline({
+      gsap.fromTo(
+        title,
+        { y: 48, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          duration: 0.9,
+          ease: 'power3.out',
+          scrollTrigger: {
+            trigger: section,
+            start: 'top 72%',
+            toggleActions: 'play none none reverse',
+          },
+        }
+      );
+
+      gsap.fromTo(
+        dashboard,
+        { y: 80, scale: 0.96, opacity: 0 },
+        {
+          y: 0,
+          scale: 1,
+          opacity: 1,
+          duration: 1,
+          ease: 'power3.out',
+          scrollTrigger: {
+            trigger: section,
+            start: 'top 68%',
+            toggleActions: 'play none none reverse',
+          },
+        }
+      );
+
+      gsap.fromTo(
+        orbs,
+        { opacity: 0.35, scale: 0.96 },
+        {
+          opacity: 1,
+          scale: 1,
+          duration: 0.9,
+          ease: 'power2.out',
+          scrollTrigger: {
+            trigger: section,
+            start: 'top 80%',
+            toggleActions: 'play none none reverse',
+          },
+        }
+      );
+
+      gsap.to(dashboard, {
+        yPercent: -8,
+        ease: 'none',
         scrollTrigger: {
           trigger: section,
-          start: 'top top',
-          end: '+=130%',
-          pin: true,
-          scrub: 0.7,
+          start: 'top bottom',
+          end: 'bottom top',
+          scrub: 0.5,
         },
       });
-
-      // ENTRANCE (0% - 30%)
-      scrollTl.fromTo(
-        title,
-        { y: '-12vh', opacity: 0 },
-        { y: 0, opacity: 1, ease: 'none' },
-        0
-      );
-
-      scrollTl.fromTo(
-        dashboard,
-        { y: '40vh', scale: 0.86, opacity: 0 },
-        { y: 0, scale: 1, opacity: 1, ease: 'none' },
-        0
-      );
-
-      scrollTl.fromTo(
-        orbs,
-        { opacity: 0, scale: 0.9 },
-        { opacity: 1, scale: 1, ease: 'none' },
-        0
-      );
-
-      // SETTLE (30% - 70%) - Hold position
-
-      // EXIT (70% - 100%)
-      scrollTl.fromTo(
-        dashboard,
-        { y: 0, scale: 1, opacity: 1 },
-        { y: '-18vh', scale: 0.92, opacity: 0, ease: 'power2.in' },
-        0.7
-      );
-
-      scrollTl.fromTo(
-        title,
-        { y: 0, opacity: 1 },
-        { y: '-6vh', opacity: 0, ease: 'power2.in' },
-        0.7
-      );
-
-      scrollTl.fromTo(
-        orbs,
-        { opacity: 1 },
-        { opacity: 0.2, ease: 'power2.in' },
-        0.7
-      );
     }, section);
 
     return () => ctx.revert();
@@ -93,7 +97,7 @@ const Dashboard = () => {
     <section
       ref={sectionRef}
       id="dashboard"
-      className="section-dark min-h-screen w-full relative overflow-hidden flex flex-col items-center justify-center"
+      className="section-dark fullscreen-panel w-full relative overflow-x-hidden"
     >
       {/* Background Glow Orbs */}
       <div ref={orbsRef} className="absolute inset-0 pointer-events-none">
@@ -104,7 +108,7 @@ const Dashboard = () => {
       {/* Title */}
       <div
         ref={titleRef}
-        className="text-center max-w-3xl mx-auto px-4 mb-8 relative z-10"
+        className="text-center max-w-3xl mx-auto px-4 mb-10 relative z-10"
       >
         <span className="eyebrow mb-4 block">DASHBOARD</span>
         <h2 className="heading-2 text-eduflow-text-primary mb-4">
@@ -118,7 +122,7 @@ const Dashboard = () => {
       {/* Dashboard Mockup */}
       <div
         ref={dashboardRef}
-        className="w-[90%] max-w-6xl relative z-20 will-change-transform"
+        className="w-[92%] max-w-6xl mx-auto relative z-20 will-change-transform"
       >
         <div className="glass-card overflow-hidden">
           {/* Dashboard Header */}
