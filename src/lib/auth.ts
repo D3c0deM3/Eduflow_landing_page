@@ -2,6 +2,8 @@ export type AuthUser = {
   id: number;
   login: string;
   role: string;
+  displayName?: string;
+  centerId?: number;
 };
 
 const TOKEN_KEY = 'eduflow_access_token';

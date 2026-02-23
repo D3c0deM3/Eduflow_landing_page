@@ -116,50 +116,22 @@ const themes = {
 } as const;
 
 /* ------------------------------------------------------------------ */
-/*  Static data (would come from API in production)                   */
+/*  Types for CRM dashboard data                                      */
 /* ------------------------------------------------------------------ */
 
-const enrollmentData = [
-  { month: 'Sep', students: 820 },
-  { month: 'Oct', students: 932 },
-  { month: 'Nov', students: 1010 },
-  { month: 'Dec', students: 980 },
-  { month: 'Jan', students: 1100 },
-  { month: 'Feb', students: 1248 },
-];
+type DashboardStats = {
+  totalStudents: number;
+  activeClasses: number;
+  monthlyRevenue: number;
+  outstandingDebt: number;
+};
 
-const examScores = [
-  { month: 'Jan', score: 65 },
-  { month: 'Feb', score: 78 },
-  { month: 'Mar', score: 82 },
-  { month: 'Apr', score: 75 },
-  { month: 'May', score: 88 },
-  { month: 'Jun', score: 92 },
-  { month: 'Jul', score: 85 },
-  { month: 'Aug', score: 90 },
-];
-
-const cefrDistribution = [
-  { name: 'A1', value: 45, color: '#6b7280' },
-  { name: 'A2', value: 78, color: '#eab308' },
-  { name: 'B1', value: 156, color: '#3b82f6' },
-  { name: 'B2+', value: 203, color: '#00F0FF' },
-];
-
-const recentActivity = [
-  { id: 1, text: 'Maria G. completed B2 Speaking Mock', time: '5 min ago', icon: Mic },
-  { id: 2, text: '12 new trial registrations received', time: '23 min ago', icon: Users },
-  { id: 3, text: 'CDI Exam batch #14 graded (avg 87%)', time: '1 hr ago', icon: FileCheck },
-  { id: 4, text: 'Schedule updated for next week', time: '2 hr ago', icon: Calendar },
-  { id: 5, text: 'New course "IELTS Intensive" published', time: '3 hr ago', icon: BookOpen },
-];
-
-const upcomingEvents = [
-  { id: 1, title: 'B1 Speaking Workshop', time: '10:00 AM', date: 'Today', students: 18 },
-  { id: 2, title: 'CDI Mock Exam – Group C', time: '2:00 PM', date: 'Today', students: 24 },
-  { id: 3, title: 'Staff Calibration Meeting', time: '4:30 PM', date: 'Today', students: 8 },
-  { id: 4, title: 'A2 Placement Tests', time: '9:00 AM', date: 'Tomorrow', students: 32 },
-];
+type EnrollmentPoint = { month: string; students: number };
+type PaymentPoint    = { month: string; total: number };
+type StatusSlice     = { name: string; value: number; color: string };
+type OverviewItem    = { label: string; value: number };
+type UpcomingEvent   = { id: number; title: string; subtitle: string; time: string; date: string; students?: number; durationMin?: number };
+type ActivityItem    = { type: string; name: string; ref: string; amount: number | null; time: string };
 
 const NAV_ITEMS = [
   { icon: TrendingUp, label: 'Overview', id: 'overview' },
@@ -228,6 +200,21 @@ const DashboardPage = () => {
 
   const t = themes[theme];
 
+  /* ---- CRM dashboard data state ---- */
+  const [dataLoading, setDataLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalStudents: 0,
+    activeClasses: 0,
+    monthlyRevenue: 0,
+    outstandingDebt: 0,
+  });
+  const [enrollmentData, setEnrollmentData] = useState<EnrollmentPoint[]>([]);
+  const [paymentsData, setPaymentsData]     = useState<PaymentPoint[]>([]);
+  const [studentStatus, setStudentStatus]   = useState<StatusSlice[]>([]);
+  const [studentOverview, setStudentOverview] = useState<OverviewItem[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+
   const toggleTheme = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
@@ -240,8 +227,13 @@ const DashboardPage = () => {
     const user = getAuthUser();
 
     if (user?.login) {
-      setUserLogin(user.login);
-      setUserInitials(user.login.slice(0, 2).toUpperCase());
+      const name = user.displayName || user.login;
+      setUserLogin(name);
+      setUserInitials(
+        user.displayName
+          ? user.displayName.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+          : user.login.slice(0, 2).toUpperCase()
+      );
     }
 
     if (!token) {
@@ -272,6 +264,45 @@ const DashboardPage = () => {
     void verify();
     return () => controller.abort();
   }, []);
+
+  /* ---- fetch CRM dashboard data (runs once auth is confirmed) ---- */
+  useEffect(() => {
+    if (isChecking) return;          // wait until auth is done
+    const token = getAuthToken();
+    if (!token) return;
+
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const fetchAll = async () => {
+      setDataLoading(true);
+      try {
+        const [statsRes, enrollRes, paymentsRes, statusRes, overviewRes, upcomingRes, activityRes] =
+          await Promise.all([
+            fetch(apiUrl('/api/dashboard/stats'), { headers }),
+            fetch(apiUrl('/api/dashboard/enrollment-trend'), { headers }),
+            fetch(apiUrl('/api/dashboard/payments-trend'), { headers }),
+            fetch(apiUrl('/api/dashboard/student-status'), { headers }),
+            fetch(apiUrl('/api/dashboard/student-overview'), { headers }),
+            fetch(apiUrl('/api/dashboard/upcoming'), { headers }),
+            fetch(apiUrl('/api/dashboard/recent-activity'), { headers }),
+          ]);
+
+        if (statsRes.ok)    setStats(await statsRes.json());
+        if (enrollRes.ok)   setEnrollmentData(await enrollRes.json());
+        if (paymentsRes.ok) setPaymentsData(await paymentsRes.json());
+        if (statusRes.ok)   setStudentStatus(await statusRes.json());
+        if (overviewRes.ok) setStudentOverview(await overviewRes.json());
+        if (upcomingRes.ok) setUpcomingEvents(await upcomingRes.json());
+        if (activityRes.ok) setRecentActivity(await activityRes.json());
+      } catch (err) {
+        console.error('Dashboard data fetch error:', err);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    void fetchAll();
+  }, [isChecking]);
 
   const handleLogout = () => {
     clearAuthSession();
@@ -450,26 +481,32 @@ const DashboardPage = () => {
           {/* ── Stat cards ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Students', value: '1,248', change: '+12%', positive: true },
-              { label: 'Active Courses', value: '36', change: '+4%', positive: true },
-              { label: 'Exam Completion', value: '89%', change: '+5%', positive: true },
-              { label: 'Avg Speaking Score', value: '7.8', change: '+0.3', positive: true },
+              {
+                label: 'Total Students',
+                value: dataLoading ? '…' : stats.totalStudents.toLocaleString(),
+              },
+              {
+                label: 'Active Classes',
+                value: dataLoading ? '…' : stats.activeClasses.toLocaleString(),
+              },
+              {
+                label: 'Revenue (this month)',
+                value: dataLoading ? '…' : `$${stats.monthlyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+              },
+              {
+                label: 'Outstanding Debt',
+                value: dataLoading ? '…' : `$${stats.outstandingDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                negative: stats.outstandingDebt > 0,
+              },
             ].map((stat, i) => (
               <div
                 key={i}
                 className={`rounded-2xl border ${t.border} ${t.cardBg} p-5 ${t.cardHover} transition-colors`}
               >
                 <p className={`text-xs ${t.textSecondary} mb-2`}>{stat.label}</p>
-                <div className="flex items-end gap-2">
-                  <span className="text-2xl font-bold">{stat.value}</span>
-                  <span
-                    className={`text-xs font-medium mb-0.5 ${
-                      stat.positive ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {stat.change}
-                  </span>
-                </div>
+                <span className={`text-2xl font-bold ${stat.negative ? 'text-red-400' : ''}`}>
+                  {stat.value}
+                </span>
               </div>
             ))}
           </div>
@@ -483,8 +520,11 @@ const DashboardPage = () => {
                 <span className={`text-[11px] ${t.textSecondary}`}>Last 6 months</span>
               </div>
               <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={enrollmentData}>
+                {dataLoading ? (
+                  <div className={`h-full ${t.barTrack} rounded-xl animate-pulse`} />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={enrollmentData}>
                     <defs>
                       <linearGradient id="enrollGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={t.chartAccent} stopOpacity={0.3} />
@@ -514,36 +554,41 @@ const DashboardPage = () => {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
 
-            {/* Exam performance */}
+            {/* Monthly Revenue */}
             <div className={`rounded-2xl border ${t.border} ${t.cardBg} p-5`}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium">CDI Exam Performance</h3>
-                <span className={`text-[11px] ${t.textSecondary}`}>Monthly avg %</span>
+                <h3 className="text-sm font-medium">Monthly Revenue</h3>
+                <span className={`text-[11px] ${t.textSecondary}`}>Last 8 months</span>
               </div>
               <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={examScores}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={t.gridStroke} />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fill: t.axisTick, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: t.axisTick, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      domain={[0, 100]}
-                      width={30}
-                    />
-                    <Tooltip content={<ChartTooltip valueLabel="%" theme={theme} />} />
-                    <Bar dataKey="score" fill={t.barFill} radius={[4, 4, 0, 0]} barSize={28} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {dataLoading ? (
+                  <div className={`h-full ${t.barTrack} rounded-xl animate-pulse`} />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={paymentsData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={t.gridStroke} />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: t.axisTick, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: t.axisTick, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={42}
+                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      />
+                      <Tooltip content={<ChartTooltip valueLabel="USD" theme={theme} />} />
+                      <Bar dataKey="total" fill={t.barFill} radius={[4, 4, 0, 0]} barSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -552,74 +597,90 @@ const DashboardPage = () => {
           <div className="grid lg:grid-cols-3 gap-4">
             {/* Enrollment funnel */}
             <div className={`rounded-2xl border ${t.border} ${t.cardBg} p-5`}>
-              <h3 className="text-sm font-medium mb-4">Enrollment Funnel</h3>
-              <div className="space-y-3">
-                {[
-                  { label: 'Leads', value: 450, max: 450, color: theme === 'dark' ? 'bg-eduflow-cyan' : 'bg-[#0891B2]' },
-                  { label: 'Contacted', value: 320, max: 450, color: theme === 'dark' ? 'bg-eduflow-cyan/70' : 'bg-[#0891B2]/70' },
-                  { label: 'Trials', value: 180, max: 450, color: theme === 'dark' ? 'bg-purple-500/70' : 'bg-purple-500/70' },
-                  { label: 'Enrolled', value: 124, max: 450, color: theme === 'dark' ? 'bg-eduflow-purple' : 'bg-purple-600' },
-                ].map((item, i) => (
-                  <div key={i}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs ${t.textSecondary}`}>{item.label}</span>
-                      <span className="text-xs font-medium">{item.value}</span>
-                    </div>
-                    <div className={`h-2 ${t.barTrack} rounded-full overflow-hidden`}>
-                      <div
-                        className={`h-full ${item.color} rounded-full transition-all duration-700`}
-                        style={{ width: `${(item.value / item.max) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <h3 className="text-sm font-medium mb-4">Student Overview</h3>
+              {dataLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className={`h-6 ${t.barTrack} rounded animate-pulse`} />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {studentOverview.map((item, i) => {
+                    const max = studentOverview[0]?.value || 1;
+                    const colors = [
+                      theme === 'dark' ? 'bg-eduflow-cyan' : 'bg-[#0891B2]',
+                      theme === 'dark' ? 'bg-eduflow-cyan/70' : 'bg-[#0891B2]/70',
+                      theme === 'dark' ? 'bg-purple-500/70' : 'bg-purple-500/70',
+                      theme === 'dark' ? 'bg-eduflow-purple' : 'bg-purple-600',
+                    ];
+                    return (
+                      <div key={i}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs ${t.textSecondary}`}>{item.label}</span>
+                          <span className="text-xs font-medium">{item.value.toLocaleString()}</span>
+                        </div>
+                        <div className={`h-2 ${t.barTrack} rounded-full overflow-hidden`}>
+                          <div
+                            className={`h-full ${colors[i % colors.length]} rounded-full transition-all duration-700`}
+                            style={{ width: `${Math.round((item.value / max) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {/* CEFR distribution */}
+            {/* Student Status distribution */}
             <div className={`rounded-2xl border ${t.border} ${t.cardBg} p-5`}>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium">Speaking Levels (CEFR)</h3>
+                <h3 className="text-sm font-medium">Student Status</h3>
                 <span className="text-[10px] text-eduflow-cyan font-medium tracking-wide uppercase">
                   Live
                 </span>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="w-32 h-32 flex-shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={cefrDistribution}
-                        dataKey="value"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={30}
-                        outerRadius={55}
-                        paddingAngle={3}
-                        strokeWidth={0}
-                      >
-                        {cefrDistribution.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-2 flex-1">
-                  {cefrDistribution.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className={`text-xs ${t.textSecondary}`}>{item.name}</span>
+              {dataLoading ? (
+                <div className={`h-32 ${t.barTrack} rounded-xl animate-pulse`} />
+              ) : (
+                <div className="flex items-center gap-4">
+                  <div className="w-32 h-32 flex-shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={studentStatus}
+                          dataKey="value"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={30}
+                          outerRadius={55}
+                          paddingAngle={3}
+                          strokeWidth={0}
+                        >
+                          {studentStatus.map((entry, index) => (
+                            <Cell key={index} fill={entry.color} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    {studentStatus.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className={`text-xs ${t.textSecondary}`}>{item.name}</span>
+                        </div>
+                        <span className="text-xs font-medium">{item.value}</span>
                       </div>
-                      <span className="text-xs font-medium">{item.value}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Upcoming */}
@@ -630,24 +691,36 @@ const DashboardPage = () => {
                   View all <ChevronRight className="w-3 h-3" />
                 </button>
               </div>
-              <div className="space-y-3">
-                {upcomingEvents.map((ev) => (
-                  <div
-                    key={ev.id}
-                    className={`flex items-start gap-3 rounded-xl ${t.innerCard} border p-3`}
-                  >
-                    <div className="mt-0.5 w-8 h-8 rounded-lg bg-eduflow-cyan/10 flex items-center justify-center flex-shrink-0">
-                      <Calendar className="w-3.5 h-3.5 text-eduflow-cyan" />
+              {dataLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className={`h-14 ${t.barTrack} rounded-xl animate-pulse`} />
+                  ))}
+                </div>
+              ) : upcomingEvents.length === 0 ? (
+                <p className={`text-xs ${t.textSecondary} text-center py-6`}>No upcoming events</p>
+              ) : (
+                <div className="space-y-3">
+                  {upcomingEvents.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className={`flex items-start gap-3 rounded-xl ${t.innerCard} border p-3`}
+                    >
+                      <div className="mt-0.5 w-8 h-8 rounded-lg bg-eduflow-cyan/10 flex items-center justify-center flex-shrink-0">
+                        <Calendar className="w-3.5 h-3.5 text-eduflow-cyan" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium truncate">{ev.title}</p>
+                        <p className={`text-[11px] ${t.textSecondary} mt-0.5`}>
+                          {ev.date} · {ev.time}
+                          {ev.durationMin ? ` · ${ev.durationMin} min` : ''}
+                          {ev.subtitle ? ` · ${ev.subtitle}` : ''}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium truncate">{ev.title}</p>
-                      <p className={`text-[11px] ${t.textSecondary} mt-0.5`}>
-                        {ev.date} · {ev.time} · {ev.students} students
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -659,24 +732,34 @@ const DashboardPage = () => {
                 View all <ChevronRight className="w-3 h-3" />
               </button>
             </div>
-            <div className={`${t.divider}`}>
-              {recentActivity.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div key={item.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                    <div className={`w-8 h-8 rounded-lg ${t.iconBox} flex items-center justify-center flex-shrink-0`}>
-                      <Icon className={`w-3.5 h-3.5 ${t.textSecondary}`} />
+            {dataLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className={`h-10 ${t.barTrack} rounded-xl animate-pulse`} />
+                ))}
+              </div>
+            ) : recentActivity.length === 0 ? (
+              <p className={`text-xs ${t.textSecondary} text-center py-6`}>No recent activity</p>
+            ) : (
+              <div className={`${t.divider}`}>
+                {recentActivity.map((item, idx) => {
+                  const Icon = item.type === 'payment' ? FileCheck : Users;
+                  const text =
+                    item.type === 'payment'
+                      ? `${item.name} — payment of $${item.amount?.toLocaleString()} (${item.ref})`
+                      : `New student enrolled: ${item.name} (${item.ref})`;
+                  return (
+                    <div key={idx} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                      <div className={`w-8 h-8 rounded-lg ${t.iconBox} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-3.5 h-3.5 ${t.textSecondary}`} />
+                      </div>
+                      <p className={`text-xs ${t.textSecondary} flex-1 min-w-0 truncate`}>{text}</p>
+                      <span className={`text-[11px] ${t.textSecondaryMuted} flex-shrink-0`}>{item.time}</span>
                     </div>
-                    <p className={`text-xs ${t.textSecondary} flex-1 min-w-0 truncate`}>
-                      {item.text}
-                    </p>
-                    <span className={`text-[11px] ${t.textSecondaryMuted} flex-shrink-0`}>
-                      {item.time}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </main>
       </div>
