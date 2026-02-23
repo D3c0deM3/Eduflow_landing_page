@@ -1,9 +1,53 @@
-import type { FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, Lock, User } from 'lucide-react';
+import { apiUrl } from '../lib/api';
+import { getAuthToken, setAuthSession } from '../lib/auth';
 
 const LoginPage = () => {
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (getAuthToken()) {
+      window.location.replace('/dashboard');
+    }
+  }, []);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const login = String(formData.get('login') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
+
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ login, password }),
+      });
+
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string; token?: string; user?: { id: number; login: string; role: string } }
+        | null;
+
+      if (!response.ok || !data?.token || !data.user) {
+        throw new Error(data?.message || 'Invalid login or password.');
+      }
+
+      setAuthSession(data.token, data.user);
+      window.location.assign('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed. Try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -36,6 +80,7 @@ const LoginPage = () => {
                   type="text"
                   name="login"
                   required
+                  autoComplete="username"
                   placeholder="Enter login"
                   className="w-full bg-transparent py-3 outline-none placeholder:text-eduflow-text-secondary/70"
                 />
@@ -50,14 +95,25 @@ const LoginPage = () => {
                   type="password"
                   name="password"
                   required
+                  autoComplete="current-password"
                   placeholder="Enter password"
                   className="w-full bg-transparent py-3 outline-none placeholder:text-eduflow-text-secondary/70"
                 />
               </div>
             </label>
 
-            <button type="submit" className="btn-primary w-full justify-center mt-2">
-              Login
+            {error ? (
+              <p className="text-sm text-red-300 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2">
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="btn-primary w-full justify-center mt-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Verifying...' : 'Login'}
             </button>
           </form>
         </div>
