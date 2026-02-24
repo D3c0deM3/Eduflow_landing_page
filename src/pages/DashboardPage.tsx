@@ -35,7 +35,7 @@ import {
   Cell,
 } from 'recharts';
 import { apiUrl } from '../lib/api';
-import { clearAuthSession, getAuthToken, getAuthUser } from '../lib/auth';
+import { clearAuthSession, getAuthToken, getAuthUser, type PlatformAccess } from '../lib/auth';
 
 /* ------------------------------------------------------------------ */
 /*  Theme tokens                                                      */
@@ -133,14 +133,14 @@ type OverviewItem    = { label: string; value: number };
 type UpcomingEvent   = { id: number; title: string; subtitle: string; time: string; date: string; students?: number; durationMin?: number };
 type ActivityItem    = { type: string; name: string; ref: string; amount: number | null; time: string };
 
-const NAV_ITEMS = [
-  { icon: TrendingUp, label: 'Overview', id: 'overview' },
-  { icon: Users, label: 'CRM', id: 'crm' },
-  { icon: FileCheck, label: 'Exams', id: 'exams' },
-  { icon: Mic, label: 'Speaking', id: 'speaking' },
-  { icon: Calendar, label: 'Schedule', id: 'schedule' },
-  { icon: BookOpen, label: 'Courses', id: 'courses' },
-  { icon: BarChart3, label: 'Reports', id: 'reports' },
+const ALL_NAV_ITEMS = [
+  { icon: TrendingUp, label: 'Overview',      id: 'overview',  platform: null            },
+  { icon: Users,      label: 'CRM',           id: 'crm',       platform: 'crm'           },
+  { icon: FileCheck,  label: 'Exams',         id: 'exams',     platform: 'cdi'           },
+  { icon: Mic,        label: 'Speaking',      id: 'speaking',  platform: 'cefr_speaking' },
+  { icon: Calendar,   label: 'Schedule',      id: 'schedule',  platform: null            },
+  { icon: BookOpen,   label: 'Courses',       id: 'courses',   platform: 'cdi'           },
+  { icon: BarChart3,  label: 'Reports',       id: 'reports',   platform: null            },
 ] as const;
 
 const NAV_BOTTOM = [
@@ -189,6 +189,7 @@ const DashboardPage = () => {
   const [userInitials, setUserInitials] = useState('AD');
   const [activeNav, setActiveNav] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [platformAccess, setPlatformAccess] = useState<PlatformAccess | null>(null);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const saved = localStorage.getItem(THEME_KEY);
@@ -221,10 +222,35 @@ const DashboardPage = () => {
     try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
   };
 
-  /* ---- auth check ---- */
+  /* ---- Refresh permissions from the server (called on mount + on nav click) ---- */
+  const refreshPermissions = async () => {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+      const response = await fetch(apiUrl('/api/auth/me'), {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const data = await response.json() as {
+        user?: { platformAccess?: { crm: boolean; cdi: boolean; cefr_speaking: boolean } };
+      };
+      if (data.user?.platformAccess) {
+        setPlatformAccess(data.user.platformAccess);
+        const stored = getAuthUser();
+        if (stored) {
+          try {
+            localStorage.setItem('eduflow_user', JSON.stringify({ ...stored, platformAccess: data.user.platformAccess }));
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* network error – ignore */ }
+  };
+
+  /* ---- Auth check on mount (runs once) ---- */
   useEffect(() => {
     const token = getAuthToken();
-    const user = getAuthUser();
+    const user  = getAuthUser();
 
     if (user?.login) {
       const name = user.displayName || user.login;
@@ -236,33 +262,50 @@ const DashboardPage = () => {
       );
     }
 
+    // Paint sidebar instantly from localStorage while the first fetch is in-flight
+    setPlatformAccess(user?.platformAccess ?? null);
+
     if (!token) {
       window.location.replace('/login');
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
 
     const verify = async () => {
       try {
         const response = await fetch(apiUrl('/api/auth/me'), {
           headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+          cache: 'no-store',
         });
+        if (cancelled) return;
         if (!response.ok) throw new Error('Session expired.');
+        const data = await response.json() as {
+          user?: { platformAccess?: { crm: boolean; cdi: boolean; cefr_speaking: boolean } };
+        };
+        if (cancelled) return;
+        if (data.user?.platformAccess) {
+          setPlatformAccess(data.user.platformAccess);
+          const stored = getAuthUser();
+          if (stored) {
+            try {
+              localStorage.setItem('eduflow_user', JSON.stringify({ ...stored, platformAccess: data.user.platformAccess }));
+            } catch { /* ignore */ }
+          }
+        }
         setError(null);
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (cancelled) return;
         clearAuthSession();
         setError(err instanceof Error ? err.message : 'Unable to verify session.');
         window.location.replace('/login');
       } finally {
-        if (!controller.signal.aborted) setIsChecking(false);
+        if (!cancelled) setIsChecking(false);
       }
     };
 
     void verify();
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, []);
 
   /* ---- fetch CRM dashboard data (runs once auth is confirmed) ---- */
@@ -359,7 +402,11 @@ const DashboardPage = () => {
 
         {/* Main nav */}
         <nav className="flex-1 px-3 space-y-0.5 mt-2 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
+          {ALL_NAV_ITEMS.filter((item) => {
+            if (!item.platform) return true; // always visible
+            if (!platformAccess) return false; // no access info yet → hide gated items
+            return platformAccess[item.platform as keyof PlatformAccess] === true;
+          }).map((item) => {
             const Icon = item.icon;
             const active = activeNav === item.id;
             return (
@@ -368,6 +415,7 @@ const DashboardPage = () => {
                 onClick={() => {
                   setActiveNav(item.id);
                   setSidebarOpen(false);
+                  void refreshPermissions();
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
                   active ? t.navActive : t.navInactive

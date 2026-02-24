@@ -34,7 +34,7 @@ const LoginPage = () => {
       });
 
       const data = (await response.json().catch(() => null)) as
-        | { message?: string; token?: string; user?: { id: number; login: string; role: string; displayName?: string; centerId?: number } }
+        | { message?: string; token?: string; user?: { id: number; login: string; role: string; displayName?: string; centerId?: number; platformAccess?: { crm: boolean; cdi: boolean; cefr_speaking: boolean } } }
         | null;
 
       if (!response.ok || !data?.token || !data.user) {

@@ -47,6 +47,53 @@ const signAccessToken = (user) => {
   );
 };
 
+const signDevToken = (devUser) => {
+  return jwt.sign(
+    {
+      sub: devUser.id,
+      username: devUser.username,
+      role: 'developer',
+    },
+    config.jwtSecret,
+    { expiresIn: '12h' }
+  );
+};
+
+const devAuthMiddleware = async (req, res, next) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    res.status(401).json({ message: 'Missing access token.' });
+    return;
+  }
+
+  try {
+    const payload = jwt.verify(token, config.jwtSecret);
+
+    if (payload.role !== 'developer') {
+      res.status(403).json({ message: 'Access denied. Developer role required.' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT id, username, display_name, is_active FROM dev_users WHERE id = $1 LIMIT 1`,
+      [Number(payload.sub)]
+    );
+
+    const devUser = result.rows[0];
+    if (!devUser || !devUser.is_active) {
+      res.status(401).json({ message: 'Invalid or inactive developer session.' });
+      return;
+    }
+
+    req.devUser = { id: devUser.id, username: devUser.username, displayName: devUser.display_name };
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired token.' });
+  }
+};
+
 const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -63,7 +110,7 @@ const authMiddleware = async (req, res, next) => {
     // Validate session against crm_db.superusers (admin-only auth)
     const result = await crmPool.query(
       `
-        SELECT superuser_id, username, role, status, is_locked
+        SELECT superuser_id, username, role, status, is_locked, permissions
         FROM superusers
         WHERE superuser_id = $1
         LIMIT 1
@@ -77,10 +124,16 @@ const authMiddleware = async (req, res, next) => {
       return;
     }
 
+    const perms = user.permissions || {};
     req.user = {
       id: user.superuser_id,
       login: user.username,
       role: user.role,
+      platformAccess: {
+        crm:           perms.crm           === true,
+        cdi:           perms.cdi           === true,
+        cefr_speaking: perms.cefr_speaking === true,
+      },
     };
     next();
   } catch (error) {
@@ -112,7 +165,7 @@ app.post('/api/auth/login', async (req, res) => {
       `
         SELECT superuser_id, center_id, username, password_hash, role,
                status, is_locked, locked_until, login_attempts,
-               first_name, last_name
+               first_name, last_name, permissions
         FROM superusers
         WHERE username = $1
         LIMIT 1
@@ -171,6 +224,14 @@ app.post('/api/auth/login', async (req, res) => {
     const token = signAccessToken(user);
     const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username;
 
+    // Parse platform access from permissions JSONB
+    const perms = user.permissions || {};
+    const platformAccess = {
+      crm: perms.crm === true,
+      cdi: perms.cdi === true,
+      cefr_speaking: perms.cefr_speaking === true,
+    };
+
     res.json({
       token,
       user: {
@@ -179,6 +240,7 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role,
         displayName,
         centerId: user.center_id,
+        platformAccess,
       },
     });
   } catch (error) {
@@ -188,7 +250,15 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.json({
+    user: {
+      id:             req.user.id,
+      login:          req.user.login,
+      role:           req.user.role,
+      platformAccess: req.user.platformAccess,
+    },
+  });
 });
 
 app.post('/api/auth/logout', (_req, res) => {
@@ -459,6 +529,314 @@ app.get('/api/dashboard/recent-activity', authMiddleware, async (_req, res) => {
   } catch (error) {
     console.error('Recent activity error:', error);
     res.status(500).json({ message: 'Failed to fetch recent activity.' });
+  }
+});
+
+/* ──────────────────────────────────────────────────────────────────────────── */
+/* Developer portal endpoints                                                   */
+/* ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * POST /api/dev/auth/login
+ * Developer login using the dev_users table (bcrypt hashed password).
+ */
+app.post('/api/dev/auth/login', async (req, res) => {
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!username || !password) {
+    res.status(400).json({ message: 'Username and password are required.' });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, username, password_hash, display_name, is_active FROM dev_users WHERE username = $1 LIMIT 1`,
+      [username]
+    );
+
+    const devUser = result.rows[0];
+
+    if (!devUser) {
+      res.status(401).json({ message: 'Invalid username or password.' });
+      return;
+    }
+
+    if (!devUser.is_active) {
+      res.status(403).json({ message: 'Developer account is inactive.' });
+      return;
+    }
+
+    const passwordMatches = await bcrypt.compare(password, devUser.password_hash);
+
+    if (!passwordMatches) {
+      res.status(401).json({ message: 'Invalid username or password.' });
+      return;
+    }
+
+    await pool.query(`UPDATE dev_users SET last_login = NOW(), updated_at = NOW() WHERE id = $1`, [devUser.id]);
+
+    const token = signDevToken(devUser);
+
+    res.json({
+      token,
+      devUser: {
+        id: devUser.id,
+        username: devUser.username,
+        displayName: devUser.display_name || devUser.username,
+        role: 'developer',
+      },
+    });
+  } catch (error) {
+    console.error('Dev login error:', error);
+    res.status(500).json({ message: 'Server error during login.' });
+  }
+});
+
+/**
+ * GET /api/dev/auth/me
+ */
+app.get('/api/dev/auth/me', devAuthMiddleware, (req, res) => {
+  res.json({ devUser: req.devUser });
+});
+
+/**
+ * GET /api/dev/superadmins
+ * List all superadmin accounts with their center + platform access.
+ */
+app.get('/api/dev/superadmins', devAuthMiddleware, async (_req, res) => {
+  try {
+    const result = await crmPool.query(`
+      SELECT
+        s.superuser_id AS id,
+        s.username,
+        s.email,
+        s.first_name,
+        s.last_name,
+        s.role,
+        s.status,
+        s.is_locked,
+        s.last_login,
+        s.created_at,
+        s.permissions,
+        ec.center_name,
+        ec.center_id,
+        ec.city
+      FROM superusers s
+      LEFT JOIN edu_centers ec ON ec.center_id = s.center_id
+      ORDER BY s.created_at DESC
+    `);
+
+    const admins = result.rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      email: r.email || '',
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      role: r.role,
+      status: r.status,
+      isLocked: r.is_locked,
+      lastLogin: r.last_login,
+      createdAt: r.created_at,
+      centerName: r.center_name || '',
+      centerId: r.center_id,
+      city: r.city || '',
+      platformAccess: {
+        crm: r.permissions?.crm === true,
+        cdi: r.permissions?.cdi === true,
+        cefr_speaking: r.permissions?.cefr_speaking === true,
+      },
+    }));
+
+    res.json(admins);
+  } catch (error) {
+    console.error('Dev - list superadmins error:', error);
+    res.status(500).json({ message: 'Failed to fetch superadmins.' });
+  }
+});
+
+/**
+ * POST /api/dev/superadmins
+ * Create a new superadmin account (also creates an edu_center).
+ */
+app.post('/api/dev/superadmins', devAuthMiddleware, async (req, res) => {
+  const {
+    firstName, lastName, username, email, password,
+    companyName, city, phone,
+    platformAccess, plan,
+  } = req.body;
+
+  if (!username || !password || !companyName) {
+    res.status(400).json({ message: 'Username, password, and company name are required.' });
+    return;
+  }
+
+  const client = await crmPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Create the edu_center first
+    const centerCode = `CTR-${Date.now()}`.slice(0, 50);
+    const centerRes = await client.query(
+      `INSERT INTO edu_centers (center_name, center_code, email, phone, city, principal_name)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING center_id`,
+      [
+        companyName,
+        centerCode,
+        email || null,
+        phone || null,
+        city || 'N/A',
+        [firstName, lastName].filter(Boolean).join(' ') || username,
+      ]
+    );
+
+    const centerId = centerRes.rows[0].center_id;
+
+    // Hash password with SHA-256 (matches CRM backend convention)
+    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+
+    const perms = {
+      crm: platformAccess?.crm === true,
+      cdi: platformAccess?.cdi === true,
+      cefr_speaking: platformAccess?.cefr_speaking === true,
+      plan: plan || 'Basic',
+    };
+
+    const suRes = await client.query(
+      `INSERT INTO superusers
+         (center_id, username, email, password_hash, first_name, last_name, role, permissions, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'Admin', $7, 'Active')
+       RETURNING superuser_id, username, email, first_name, last_name, role, status, permissions, created_at`,
+      [centerId, username, email || null, passwordHash, firstName || null, lastName || null, JSON.stringify(perms)]
+    );
+
+    await client.query('COMMIT');
+
+    const su = suRes.rows[0];
+    res.status(201).json({
+      id: su.superuser_id,
+      username: su.username,
+      email: su.email || '',
+      firstName: su.first_name || '',
+      lastName: su.last_name || '',
+      role: su.role,
+      status: su.status,
+      centerId,
+      centerName: companyName,
+      platformAccess: {
+        crm: perms.crm,
+        cdi: perms.cdi,
+        cefr_speaking: perms.cefr_speaking,
+      },
+      createdAt: su.created_at,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error.code === '23505') {
+      res.status(409).json({ message: 'Username or email already exists.' });
+    } else {
+      console.error('Dev - create superadmin error:', error);
+      res.status(500).json({ message: 'Failed to create superadmin.' });
+    }
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * PATCH /api/dev/superadmins/:id
+ * Update platform access, status, or role for an existing superadmin.
+ */
+app.patch('/api/dev/superadmins/:id', devAuthMiddleware, async (req, res) => {
+  const superuserId = Number(req.params.id);
+  if (!superuserId) {
+    res.status(400).json({ message: 'Invalid superadmin ID.' });
+    return;
+  }
+
+  const { platformAccess, status, plan } = req.body;
+
+  try {
+    // Fetch current permissions first
+    const current = await crmPool.query(
+      `SELECT permissions, status FROM superusers WHERE superuser_id = $1`,
+      [superuserId]
+    );
+
+    if (!current.rows[0]) {
+      res.status(404).json({ message: 'Superadmin not found.' });
+      return;
+    }
+
+    const existingPerms = current.rows[0].permissions || {};
+    const updatedPerms = {
+      ...existingPerms,
+      ...(platformAccess !== undefined && {
+        crm: platformAccess.crm === true,
+        cdi: platformAccess.cdi === true,
+        cefr_speaking: platformAccess.cefr_speaking === true,
+      }),
+      ...(plan !== undefined && { plan }),
+    };
+
+    const newStatus = status || current.rows[0].status;
+
+    await crmPool.query(
+      `UPDATE superusers
+       SET permissions = $1, status = $2, updated_at = NOW()
+       WHERE superuser_id = $3`,
+      [JSON.stringify(updatedPerms), newStatus, superuserId]
+    );
+
+    res.json({ ok: true, permissions: updatedPerms, status: newStatus });
+  } catch (error) {
+    console.error('Dev - update superadmin error:', error);
+    res.status(500).json({ message: 'Failed to update superadmin.' });
+  }
+});
+
+/**
+ * DELETE /api/dev/superadmins/:id
+ * Permanently removes a superadmin account (and their edu_center if no other admins reference it).
+ */
+app.delete('/api/dev/superadmins/:id', devAuthMiddleware, async (req, res) => {
+  const superuserId = Number(req.params.id);
+  if (!superuserId) {
+    res.status(400).json({ message: 'Invalid superadmin ID.' });
+    return;
+  }
+
+  try {
+    await crmPool.query(`DELETE FROM superusers WHERE superuser_id = $1`, [superuserId]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Dev - delete superadmin error:', error);
+    res.status(500).json({ message: 'Failed to delete superadmin.' });
+  }
+});
+
+/**
+ * GET /api/dev/stats
+ * Developer overview stats.
+ */
+app.get('/api/dev/stats', devAuthMiddleware, async (_req, res) => {
+  try {
+    const [totalRes, activeRes, lockedRes, centersRes] = await Promise.all([
+      crmPool.query(`SELECT COUNT(*) AS count FROM superusers`),
+      crmPool.query(`SELECT COUNT(*) AS count FROM superusers WHERE status = 'Active'`),
+      crmPool.query(`SELECT COUNT(*) AS count FROM superusers WHERE is_locked = TRUE`),
+      crmPool.query(`SELECT COUNT(*) AS count FROM edu_centers`),
+    ]);
+
+    res.json({
+      totalAdmins: Number(totalRes.rows[0].count),
+      activeAdmins: Number(activeRes.rows[0].count),
+      lockedAdmins: Number(lockedRes.rows[0].count),
+      totalCenters: Number(centersRes.rows[0].count),
+    });
+  } catch (error) {
+    console.error('Dev stats error:', error);
+    res.status(500).json({ message: 'Failed to fetch developer stats.' });
   }
 });
 
