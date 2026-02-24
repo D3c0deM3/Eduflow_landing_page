@@ -207,7 +207,7 @@ app.get('/api/dashboard/stats', authMiddleware, async (_req, res) => {
   try {
     const [studentsRes, classesRes, revenueRes, debtRes] = await Promise.all([
       crmPool.query(`SELECT COUNT(*) AS count FROM students WHERE status = 'Active'`),
-      crmPool.query(`SELECT COUNT(*) AS count FROM classes WHERE status = 'Active'`),
+      crmPool.query(`SELECT COUNT(*) AS count FROM classes`),
       crmPool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total
          FROM payments
