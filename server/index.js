@@ -110,7 +110,7 @@ const authMiddleware = async (req, res, next) => {
     // Validate session against crm_db.superusers (admin-only auth)
     const result = await crmPool.query(
       `
-        SELECT superuser_id, username, role, status, is_locked, permissions
+        SELECT superuser_id, username, role, status, is_locked, permissions, center_id
         FROM superusers
         WHERE superuser_id = $1
         LIMIT 1
@@ -127,6 +127,7 @@ const authMiddleware = async (req, res, next) => {
     const perms = user.permissions || {};
     req.user = {
       id: user.superuser_id,
+      centerId: user.center_id,
       login: user.username,
       role: user.role,
       platformAccess: {
@@ -273,19 +274,29 @@ app.post('/api/auth/logout', (_req, res) => {
  * GET /api/dashboard/stats
  * Returns the four KPI stat cards.
  */
-app.get('/api/dashboard/stats', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const [studentsRes, classesRes, revenueRes, debtRes] = await Promise.all([
-      crmPool.query(`SELECT COUNT(*) AS count FROM students WHERE status = 'Active'`),
-      crmPool.query(`SELECT COUNT(*) AS count FROM classes`),
+      crmPool.query(
+        `SELECT COUNT(*) AS count FROM students WHERE status = 'Active' AND center_id = $1`,
+        [centerId]
+      ),
+      crmPool.query(
+        `SELECT COUNT(*) AS count FROM classes WHERE center_id = $1`,
+        [centerId]
+      ),
       crmPool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total
          FROM payments
          WHERE payment_status = 'Completed'
-           AND DATE_TRUNC('month', payment_date) = DATE_TRUNC('month', CURRENT_DATE)`
+           AND center_id = $1
+           AND DATE_TRUNC('month', payment_date) = DATE_TRUNC('month', CURRENT_DATE)`,
+        [centerId]
       ),
       crmPool.query(
-        `SELECT COALESCE(SUM(balance), 0) AS total FROM debts WHERE balance > 0`
+        `SELECT COALESCE(SUM(balance), 0) AS total FROM debts WHERE balance > 0 AND center_id = $1`,
+        [centerId]
       ),
     ]);
 
@@ -305,7 +316,8 @@ app.get('/api/dashboard/stats', authMiddleware, async (_req, res) => {
  * GET /api/dashboard/enrollment-trend
  * Monthly new student registrations for the last 6 months.
  */
-app.get('/api/dashboard/enrollment-trend', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/enrollment-trend', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const result = await crmPool.query(`
       SELECT
@@ -313,10 +325,11 @@ app.get('/api/dashboard/enrollment-trend', authMiddleware, async (_req, res) => 
         DATE_TRUNC('month', created_at) AS month_start,
         COUNT(*) AS students
       FROM students
-      WHERE created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+      WHERE center_id = $1
+        AND created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
       GROUP BY DATE_TRUNC('month', created_at)
       ORDER BY DATE_TRUNC('month', created_at)
-    `);
+    `, [centerId]);
     res.json(result.rows.map((r) => ({ month: r.month, students: Number(r.students) })));
   } catch (error) {
     console.error('Enrollment trend error:', error);
@@ -328,7 +341,8 @@ app.get('/api/dashboard/enrollment-trend', authMiddleware, async (_req, res) => 
  * GET /api/dashboard/payments-trend
  * Monthly completed payment totals for the last 8 months.
  */
-app.get('/api/dashboard/payments-trend', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/payments-trend', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const result = await crmPool.query(`
       SELECT
@@ -337,10 +351,11 @@ app.get('/api/dashboard/payments-trend', authMiddleware, async (_req, res) => {
         ROUND(SUM(amount)::numeric, 2) AS total
       FROM payments
       WHERE payment_status = 'Completed'
+        AND center_id = $1
         AND payment_date >= DATE_TRUNC('month', NOW()) - INTERVAL '7 months'
       GROUP BY DATE_TRUNC('month', payment_date)
       ORDER BY DATE_TRUNC('month', payment_date)
-    `);
+    `, [centerId]);
     res.json(result.rows.map((r) => ({ month: r.month, total: Number(r.total) })));
   } catch (error) {
     console.error('Payments trend error:', error);
@@ -352,14 +367,16 @@ app.get('/api/dashboard/payments-trend', authMiddleware, async (_req, res) => {
  * GET /api/dashboard/student-status
  * Student count grouped by enrollment status (Active, Inactive, Graduated, Removed).
  */
-app.get('/api/dashboard/student-status', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/student-status', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const result = await crmPool.query(`
       SELECT status, COUNT(*) AS value
       FROM students
+      WHERE center_id = $1
       GROUP BY status
       ORDER BY status
-    `);
+    `, [centerId]);
     const COLORS = { Active: '#00F0FF', Inactive: '#eab308', Graduated: '#3b82f6', Removed: '#6b7280' };
     const data = result.rows.map((r) => ({
       name: r.status,
@@ -377,16 +394,19 @@ app.get('/api/dashboard/student-status', authMiddleware, async (_req, res) => {
  * GET /api/dashboard/student-overview
  * Funnel-style breakdown: Total → Active → With completed payments → With open debts.
  */
-app.get('/api/dashboard/student-overview', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/student-overview', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const [totalRes, activeRes, paidRes, debtRes] = await Promise.all([
-      crmPool.query(`SELECT COUNT(*) AS count FROM students`),
-      crmPool.query(`SELECT COUNT(*) AS count FROM students WHERE status = 'Active'`),
+      crmPool.query(`SELECT COUNT(*) AS count FROM students WHERE center_id = $1`, [centerId]),
+      crmPool.query(`SELECT COUNT(*) AS count FROM students WHERE status = 'Active' AND center_id = $1`, [centerId]),
       crmPool.query(
-        `SELECT COUNT(DISTINCT student_id) AS count FROM payments WHERE payment_status = 'Completed'`
+        `SELECT COUNT(DISTINCT student_id) AS count FROM payments WHERE payment_status = 'Completed' AND center_id = $1`,
+        [centerId]
       ),
       crmPool.query(
-        `SELECT COUNT(DISTINCT student_id) AS count FROM debts WHERE balance > 0`
+        `SELECT COUNT(DISTINCT student_id) AS count FROM debts WHERE balance > 0 AND center_id = $1`,
+        [centerId]
       ),
     ]);
     res.json([
@@ -406,7 +426,8 @@ app.get('/api/dashboard/student-overview', authMiddleware, async (_req, res) => 
  * Up to 4 upcoming active tests ordered by start_date.
  * Falls back to upcoming assignments if no tests are scheduled.
  */
-app.get('/api/dashboard/upcoming', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/upcoming', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const testsRes = await crmPool.query(`
       SELECT
@@ -416,10 +437,10 @@ app.get('/api/dashboard/upcoming', authMiddleware, async (_req, res) => {
         end_date,
         duration_minutes
       FROM tests
-      WHERE is_active = TRUE AND start_date >= NOW()
+      WHERE is_active = TRUE AND start_date >= NOW() AND center_id = $1
       ORDER BY start_date
       LIMIT 4
-    `);
+    `, [centerId]);
 
     if (testsRes.rows.length > 0) {
       res.json(testsRes.rows.map((r, i) => ({
@@ -449,11 +470,11 @@ app.get('/api/dashboard/upcoming', authMiddleware, async (_req, res) => {
         c.class_name AS subtitle,
         (SELECT COUNT(*) FROM students s WHERE s.class_id = a.class_id AND s.status = 'Active') AS students
       FROM assignments a
-      LEFT JOIN classes c ON c.class_id = a.class_id
-      WHERE a.due_date >= NOW() AND a.status = 'Pending'
+      JOIN classes c ON c.class_id = a.class_id
+      WHERE c.center_id = $1 AND a.due_date >= NOW() AND a.status = 'Pending'
       ORDER BY a.due_date
       LIMIT 4
-    `);
+    `, [centerId]);
 
     res.json(assignRes.rows.map((r, i) => ({
       id: i + 1,
@@ -481,7 +502,8 @@ app.get('/api/dashboard/upcoming', authMiddleware, async (_req, res) => {
  * GET /api/dashboard/recent-activity
  * Latest 5 events: newest student registrations + newest payments, merged and sorted.
  */
-app.get('/api/dashboard/recent-activity', authMiddleware, async (_req, res) => {
+app.get('/api/dashboard/recent-activity', authMiddleware, async (req, res) => {
+  const centerId = req.user.centerId;
   try {
     const result = await crmPool.query(`
       SELECT type, name, ref, amount, created_at FROM (
@@ -492,6 +514,7 @@ app.get('/api/dashboard/recent-activity', authMiddleware, async (_req, res) => {
           NULL::numeric AS amount,
           s.created_at
         FROM students s
+        WHERE s.center_id = $1
         ORDER BY s.created_at DESC
         LIMIT 5
       ) enrollments
@@ -505,13 +528,13 @@ app.get('/api/dashboard/recent-activity', authMiddleware, async (_req, res) => {
           p.created_at
         FROM payments p
         JOIN students st ON st.student_id = p.student_id
-        WHERE p.payment_status = 'Completed'
+        WHERE p.payment_status = 'Completed' AND p.center_id = $1
         ORDER BY p.created_at DESC
         LIMIT 5
       ) payments_data
       ORDER BY created_at DESC
       LIMIT 5
-    `);
+    `, [centerId]);
 
     res.json(result.rows.map((r) => ({
       type: r.type,
